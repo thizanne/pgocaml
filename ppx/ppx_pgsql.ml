@@ -445,13 +445,17 @@ let expand_sql loc dbh extras =
      pgsql_expand ~flags loc dbh query
 
 (* Returns the empty list if one of the elements is not a string constant *)
-let list_of_string_args args =
+let list_of_string_args mapper args =
   let maybe_strs =
   List.map
     (function
       | ("", {pexp_desc = Pexp_constant (Const_string (str, None))})
         -> Some str
-      | _ -> None
+      | (_, other) ->
+        match mapper other with
+        | {pexp_desc = Pexp_constant (Const_string (str, None))}
+          -> Some str
+        | _ -> None
     )
     args
   in
@@ -477,7 +481,7 @@ let pgocaml_mapper _argv =
               { txt = "pgsql"; loc },
               PStr [{ pstr_desc = Pstr_eval ({pexp_desc = Pexp_apply (dbh, args)}, _)}]
             )} ->
-        ( match list_of_string_args args with
+        ( match list_of_string_args (default_mapper.expr mapper) args with
           | [] -> unsupported loc
           | args ->
             ( try 
