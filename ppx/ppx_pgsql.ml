@@ -463,31 +463,38 @@ let list_of_string_args args =
 let pgocaml_mapper _argv =
   { default_mapper with
     expr = fun mapper expr ->
-      match expr with
-      | { pexp_desc =
-            Pexp_extension (
-              { txt = "pgsql"; loc },
-              PStr [{ pstr_desc = Pstr_eval ({pexp_desc = Pexp_apply (dbh, args)}, _)}]
-            )} when list_of_string_args args <> [] ->
-        ( try 
-            expand_sql loc dbh (list_of_string_args args)
-          with exn ->
-            { expr with
-              pexp_desc = Pexp_extension (
-                  extension_of_error @@
-                  Location.error ~loc (Printf.sprintf "aiee: %s" (Printexc.to_string exn))
-                )
-            }
-        )
-      | { pexp_desc =
-            Pexp_extension (
-              { txt = "pgsql"; loc }, _)} ->
+      let unsupported loc =
         { expr with
           pexp_desc = Pexp_extension (
               extension_of_error @@
               Location.error ~loc (Printf.sprintf "aiee: something unsupported")
             )
         }
+      in
+      match expr with
+      | { pexp_desc =
+            Pexp_extension (
+              { txt = "pgsql"; loc },
+              PStr [{ pstr_desc = Pstr_eval ({pexp_desc = Pexp_apply (dbh, args)}, _)}]
+            )} ->
+        ( match list_of_string_args args with
+          | [] -> unsupported loc
+          | args ->
+            ( try 
+                expand_sql loc dbh args
+              with exn ->
+                { expr with
+                  pexp_desc = Pexp_extension (
+                      extension_of_error @@
+                      Location.error ~loc (Printf.sprintf "aiee: %s" (Printexc.to_string exn))
+                    )
+                }
+            )
+        )
+      | { pexp_desc =
+            Pexp_extension (
+              { txt = "pgsql"; loc }, _)} ->
+        unsupported loc
       | other ->
         default_mapper.expr mapper other
   }
