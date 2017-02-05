@@ -794,7 +794,7 @@ let print_ErrorResponse fields =
   )
 
 (* Handle an ErrorResponse anywhere, by printing and raising an exception. *)
-let pg_error ?conn fields =
+let pg_error ?(sync = false) ?conn fields =
   print_ErrorResponse fields;
   let str =
     try
@@ -817,7 +817,12 @@ let pg_error ?conn fields =
 	 let msg = parse_backend_message msg in
 	 match msg with ReadyForQuery _ -> return () | _ -> loop ()
        in
-       loop ()
+       if sync then begin
+         let msg = new_message 'S' in
+         send_message conn msg >>= fun () ->
+         loop ()
+       end else
+         loop ()
   ) >>= fun () ->
 
   fail (PostgreSQL_Error (str, fields))
@@ -1025,7 +1030,7 @@ let connect ?host ?port ?user ?password ?database
       | AuthenticationSCMCredential ->
 	  fail (Error "PGOCaml: SCM Credential authentication not supported")
       | ErrorResponse err ->
-	  pg_error ~conn err
+	  pg_error err
       | NoticeResponse err ->
 	  (* XXX Do or print something here? *)
 	  loop None
@@ -1119,7 +1124,7 @@ let prepare conn ~query ?(name = "") ?(types = []) () =
       receive_message conn >>= fun msg ->
       let msg = parse_backend_message msg in
       match msg with
-      | ErrorResponse err -> pg_error err
+      | ErrorResponse err -> pg_error ~sync:true ~conn err
       | ParseComplete -> return () (* Finished! *)
       | NoticeResponse _ ->
 	  (* XXX Do or print something here? *)
@@ -1363,7 +1368,7 @@ let describe_statement conn ?(name = "") () =
   receive_message conn >>= fun msg ->
   let msg = parse_backend_message msg in
   ( match msg with
-    | ErrorResponse err -> pg_error err
+    | ErrorResponse err -> pg_error ~sync:true ~conn err
     | ParameterDescription params ->
 	let params = List.map (
 	  fun oid ->
@@ -1376,7 +1381,7 @@ let describe_statement conn ?(name = "") () =
   receive_message conn >>= fun msg ->
   let msg = parse_backend_message msg in
   match msg with
-  | ErrorResponse err -> pg_error err
+  | ErrorResponse err -> pg_error ~sync:true ~conn err
   | NoData -> return (params, None)
   | RowDescription fields ->
       let fields = List.map (
@@ -1404,7 +1409,7 @@ let describe_portal conn ?(portal = "") () =
   receive_message conn >>= fun msg ->
   let msg = parse_backend_message msg in
   match msg with
-  | ErrorResponse err -> pg_error err
+  | ErrorResponse err -> pg_error ~sync:true ~conn err
   | NoData -> return None
   | RowDescription fields ->
       let fields = List.map (
@@ -1438,6 +1443,8 @@ let name_of_type ?modifier = function
   | 21_l -> "int16"          (* INT2 *)
   | 23_l -> "int32"          (* INT4 *)
   | 25_l -> "string"         (* TEXT *)
+  | 114_l -> "string"        (* JSON *)
+  | 119_l -> "string_array"  (* JSON[] *)
   | 600_l -> "point"         (* POINT *)
   | 700_l
   | 701_l -> "float"	     (* FLOAT4, FLOAT8 *)
@@ -1459,6 +1466,7 @@ let name_of_type ?modifier = function
   | 1700_l -> "string"       (* NUMERIC *)
   | 2950_l -> "uuid"         (* UUID *)
   | 3802_l -> "string"       (* JSONB *)
+  | 3807_l -> "string_array" (* JSONB[] *)
   | i ->
       (* For unknown types, look at <postgresql/catalog/pg_type.h>. *)
       raise (Error ("PGOCaml: unknown type for OID " ^ Int32.to_string i))
@@ -1714,7 +1722,7 @@ let timestamptz_of_string str =
   let tz = match tz with
     | None -> Time_Zone.Local (* best guess? *)
     | Some tz ->
-	let sgn = match tz.[0] with '+' -> 1 | '-' -> 0 | _ -> assert false in
+	let sgn = match tz.[0] with '+' -> 1 | '-' -> -1 | _ -> assert false in
 	let mag = int_of_string (String.sub tz 1 2) in
 	Time_Zone.UTC_Plus (sgn * mag) in
   cal, tz
