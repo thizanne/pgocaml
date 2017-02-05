@@ -136,7 +136,7 @@ let loc_raise loc exn =
   raise exn
 
 let const_string ~loc str =
-  { pexp_desc = Pexp_constant (Const_string (str, None));
+  { pexp_desc = Pexp_constant (Pconst_string (str, None));
     pexp_loc = loc;
     pexp_attributes = []; }
 
@@ -449,11 +449,11 @@ let list_of_string_args mapper args =
   let maybe_strs =
   List.map
     (function
-      | ("", {pexp_desc = Pexp_constant (Const_string (str, None))})
+      | (Nolabel, {pexp_desc = Pexp_constant (Pconst_string (str, None))})
         -> Some str
       | (_, other) ->
         match mapper other with
-        | {pexp_desc = Pexp_constant (Const_string (str, None))}
+        | {pexp_desc = Pexp_constant (Pconst_string (str, None))}
           -> Some str
         | _ -> None
     )
